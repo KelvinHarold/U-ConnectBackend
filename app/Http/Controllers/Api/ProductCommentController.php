@@ -34,13 +34,15 @@ class ProductCommentController extends Controller
         $product = Product::findOrFail($id);
 
         $request->validate([
-            'body' => 'required|string|max:500',
+            'body'   => 'required|string|max:500',
+            'rating' => 'required|integer|min:1|max:5',
         ]);
 
         $comment = ProductComment::create([
             'product_id' => $product->id,
             'user_id'    => auth()->id(),
             'body'       => $request->body,
+            'rating'     => $request->rating,
         ]);
 
         // Load the user relationship for the response

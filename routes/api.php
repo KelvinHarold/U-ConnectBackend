@@ -214,6 +214,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/orders/{id}/confirm-delivery', [BuyerOrderController::class, 'confirmDelivery']);
         Route::get('/orders/{id}/track', [BuyerOrderController::class, 'track']);
 
+        Route::post('/sellers/{id}/rate', [\App\Http\Controllers\Api\Buyer\SellerRatingController::class, 'store']);
+
         // Reports
         Route::get('/reports', [IssueReportController::class, 'index']);
         Route::post('/reports', [IssueReportController::class, 'store']);

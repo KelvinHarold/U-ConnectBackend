@@ -20,7 +20,6 @@ class AuthController extends Controller
             'password' => ['required', 'confirmed', Password::min(8)],
             'role' => 'required|in:buyer,seller,admin',  // Admins role should not be placed for security reasons 
             'address' => 'required|string',
-            'university_id' => 'required_if:role,buyer|nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -33,7 +32,6 @@ class AuthController extends Controller
             'phone' => $request->phone,
             'password' => Hash::make($request->password),
             'address' => $request->address,
-            'university_id' => $request->university_id,
             'is_active' => true,
         ]);
 

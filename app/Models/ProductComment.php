@@ -13,6 +13,7 @@ class ProductComment extends Model
         'product_id',
         'user_id',
         'body',
+        'rating',
     ];
 
     public function product()

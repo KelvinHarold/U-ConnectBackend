@@ -39,7 +39,9 @@ class User extends Authenticatable
     protected $appends = [
         'profile_photo_url',
         'store_logo_url',
-        'role'
+        'role',
+        'average_rating',
+        'ratings_count'
     ];
 
     // Relationships
@@ -71,6 +73,11 @@ class User extends Authenticatable
     public function subscriptions()
     {
         return $this->hasMany(Subscription::class, 'seller_id');
+    }
+
+    public function sellerRatings()
+    {
+        return $this->hasMany(SellerRating::class, 'seller_id');
     }
 
 
@@ -115,6 +122,24 @@ public function readNotifications()
     public function getRoleAttribute()
     {
         return $this->roles->first()->name ?? null;
+    }
+
+    // Accessor for average rating
+    public function getAverageRatingAttribute()
+    {
+        if ($this->isSeller() || $this->role === 'seller') {
+            return (float) number_format($this->sellerRatings()->avg('rating') ?? 5.0, 1);
+        }
+        return null;
+    }
+
+    // Accessor for ratings count
+    public function getRatingsCountAttribute()
+    {
+        if ($this->isSeller() || $this->role === 'seller') {
+            return $this->sellerRatings()->count();
+        }
+        return 0;
     }
 
     // Scopes

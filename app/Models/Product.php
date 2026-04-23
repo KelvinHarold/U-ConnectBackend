@@ -35,7 +35,7 @@ class Product extends Model
         'discount_percentage' => 'integer',
     ];
 
-    protected $appends = ['discounted_price'];
+    protected $appends = ['discounted_price', 'average_rating', 'ratings_count'];
 
     protected static function boot()
     {
@@ -162,5 +162,15 @@ class Product extends Model
             return round($this->price - $discount, 2);
         }
         return $this->price;
+    }
+
+    public function getAverageRatingAttribute()
+    {
+        return (float) number_format($this->comments()->avg('rating') ?? 5.0, 1);
+    }
+
+    public function getRatingsCountAttribute()
+    {
+        return $this->comments()->count();
     }
 }
