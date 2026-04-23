@@ -10,6 +10,10 @@ use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\SellerOrderMail;
 
 class CartController extends Controller
 {
@@ -180,162 +184,82 @@ class CartController extends Controller
             }
         }
 
-        
         $subtotal = $cartItems->sum(function($item) {
             return $item->product->discounted_price * $item->quantity;
         });
-        
-        // Create order
-        $orderNumber = 'ORD-' . strtoupper(uniqid());
-        $order = Order::create([
-            'order_number' => $orderNumber,
-            'buyer_id' => auth()->id(),
-            'seller_id' => $sellerId,
-            'subtotal' => $subtotal,
-            'total' => $subtotal,
-            'delivery_address' => $request->delivery_address,
-            'notes' => $request->notes,
-            'status' => 'pending',
-            'payment_method' => 'cash_on_delivery',
-            'payment_status' => 'pending',
-        ]);
-        
-        // Create order items and reduce stock
-        foreach ($cartItems as $item) {
-            $order->items()->create([
-                'product_id' => $item->product_id,
-                'product_name' => $item->product->name,
-                'product_price' => $item->product->discounted_price,
-                'quantity' => $item->quantity,
-                'subtotal' => $item->product->discounted_price * $item->quantity,
+
+        DB::beginTransaction();
+
+        try {
+            // Create order
+            $orderNumber = 'ORD-' . strtoupper(uniqid());
+            $order = Order::create([
+                'order_number' => $orderNumber,
+                'buyer_id' => auth()->id(),
+                'seller_id' => $sellerId,
+                'subtotal' => $subtotal,
+                'total' => $subtotal,
+                'delivery_address' => $request->delivery_address,
+                'notes' => $request->notes,
+                'status' => 'pending',
+                'payment_method' => 'cash_on_delivery',
+                'payment_status' => 'pending',
             ]);
             
-            // Reduce stock
-            $item->product->decreaseStock($item->quantity);
-        }
-        
-        // Clear cart
-        Cart::where('buyer_id', auth()->id())->delete();
-        
-        // Notify the seller in real-time about the new order
-        notify()->sendToUser($order->seller, [
-            'type' => 'order_placed',
-            'title' => 'New Order Received! 🛍️',
-            'body' => "You have received a new order #{$order->order_number} from {$order->buyer->name}.",
-            'data' => [
-                'order_id' => $order->id,
-                'order_number' => $order->order_number,
-                'buyer_name' => $order->buyer->name,
-            ],
-            'actions' => [
-                ['label' => 'View Order Details', 'url' => "/seller/orders/{$order->id}"],
-            ],
-        ]);
-        
-        // Send WhatsApp notification to seller
-        $whatsappUrls = $this->sendWhatsAppNotification($order);
-        
-        return response()->json([
-            'message' => 'Order placed successfully',
-            'order' => $order->load('items'),
-            'whatsapp_urls' => $whatsappUrls
-        ], 201);
-    }
-    
-    /**
-     * Send WhatsApp notification to seller with order details
-     * Returns both desktop app and web URLs
-     */
-    private function sendWhatsAppNotification($order)
-    {
-        try {
-            // Get seller's phone number
-            $sellerPhone = $order->seller->phone;
-            
-            if (!$sellerPhone) {
-                Log::warning("Seller {$order->seller_id} has no phone number for WhatsApp notification");
-                return null;
+            // Create order items and reduce stock
+            foreach ($cartItems as $item) {
+                $order->items()->create([
+                    'product_id' => $item->product_id,
+                    'product_name' => $item->product->name,
+                    'product_price' => $item->product->discounted_price,
+                    'quantity' => $item->quantity,
+                    'subtotal' => $item->product->discounted_price * $item->quantity,
+                ]);
+                
+                // Reduce stock
+                $item->product->decreaseStock($item->quantity);
             }
             
-            // Clean phone number (remove spaces, dashes, plus signs)
-            $cleanPhone = preg_replace('/[^0-9]/', '', $sellerPhone);
+            // Clear cart
+            Cart::where('buyer_id', auth()->id())->delete();
             
-            // Remove leading zero
-            $cleanPhone = ltrim($cleanPhone, '0');
-            
-            // Build the WhatsApp message with order details
-            $message = $this->buildWhatsAppMessage($order);
-            
-            // Encode the message for URL
-            $encodedMessage = urlencode($message);
-            
-            // Return both URLs - desktop app and web version
-            return [
-                'app' => "whatsapp://send?phone={$cleanPhone}&text={$encodedMessage}",
-                'web' => "https://wa.me/{$cleanPhone}?text={$encodedMessage}"
-            ];
-            
+            // Generate PDF
+            $pdf = Pdf::loadView('pdf.order', compact('order'));
+            $pdfContent = $pdf->output();
+
+            // Send Email to seller
+            Mail::to($seller->email)->send(new SellerOrderMail($order, $pdfContent));
+
+            DB::commit();
+
+            // Notify the seller in real-time about the new order
+            notify()->sendToUser($order->seller, [
+                'type' => 'order_placed',
+                'title' => 'New Order Received! 🛍️',
+                'body' => "You have received a new order #{$order->order_number} from {$order->buyer->name}.",
+                'data' => [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_number,
+                    'buyer_name' => $order->buyer->name,
+                ],
+                'actions' => [
+                    ['label' => 'View Order Details', 'url' => "/seller/orders/{$order->id}"],
+                ],
+            ]);
+
+            return response()->json([
+                'message' => 'Order placed successfully',
+                'order' => $order->load('items')
+            ], 201);
+
         } catch (\Exception $e) {
-            Log::error("Failed to send WhatsApp notification: " . $e->getMessage());
-            return null;
+            DB::rollBack();
+            Log::error("Order placement failed: " . $e->getMessage());
+            
+            return response()->json([
+                'message' => 'Failed to process the order. Please try again later.',
+                'error' => $e->getMessage()
+            ], 500);
         }
-    }
-    
-    /**
-     * Build WhatsApp message with order details
-     */
-    private function buildWhatsAppMessage($order)
-    {
-        // Get buyer info
-        $buyer = auth()->user();
-        
-        // Build order items list
-        $itemsList = "";
-        foreach ($order->items as $item) {
-            $itemsList .= "• {$item->quantity}x {$item->product_name} - ₱" . number_format($item->product_price, 2) . " (Total: ₱" . number_format($item->subtotal, 2) . ")\n";
-        }
-        
-        // Format the message
-        $message = "🛍️ *NEW ORDER RECEIVED!*\n\n";
-        $message .= "─────────────────────\n";
-        $message .= "📦 *ORDER DETAILS*\n";
-        $message .= "─────────────────────\n";
-        $message .= "Order #: *{$order->order_number}*\n";
-        $message .= "Date: " . now()->format('Y-m-d H:i:s') . "\n\n";
-        
-        $message .= "👤 *BUYER INFORMATION*\n";
-        $message .= "─────────────────────\n";
-        $message .= "Name: {$buyer->name}\n";
-        $message .= "Email: {$buyer->email}\n";
-        $message .= "Phone: {$buyer->phone}\n\n";
-        
-        $message .= "📋 *ORDER ITEMS*\n";
-        $message .= "─────────────────────\n";
-        $message .= $itemsList . "\n";
-        
-        $message .= "💰 *PAYMENT SUMMARY*\n";
-        $message .= "─────────────────────\n";
-        $message .= "Subtotal: ₱" . number_format($order->subtotal, 2) . "\n";
-        $message .= "Total: ₱" . number_format($order->total, 2) . "\n\n";
-        
-        $message .= "🚚 *DELIVERY ADDRESS*\n";
-        $message .= "─────────────────────\n";
-        $message .= "{$order->delivery_address}\n\n";
-        
-        if ($order->notes) {
-            $message .= "📝 *ORDER NOTES*\n";
-            $message .= "─────────────────────\n";
-            $message .= "{$order->notes}\n\n";
-        }
-        
-        $message .= "💳 *PAYMENT METHOD*\n";
-        $message .= "─────────────────────\n";
-        $message .= "Cash on Delivery\n\n";
-        
-        $message .= "✅ Please confirm this order as soon as possible.\n";
-        $message .= "─────────────────────\n";
-        $message .= "Thank you for your business! 🙏";
-        
-        return $message;
     }
 }
