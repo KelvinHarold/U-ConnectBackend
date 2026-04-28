@@ -153,6 +153,14 @@ public function readNotifications()
         return $query->role('seller');
     }
 
+    public function scopePaidOnly($query)
+    {
+        return $query->whereHas('subscriptions', function ($q) {
+            $q->where('status', 'active')
+              ->where('ends_at', '>', now());
+        });
+    }
+
     public function scopeBuyers($query)
     {
         return $query->role('buyer');
@@ -183,7 +191,7 @@ public function readNotifications()
 
     public function canSell()
     {
-        return $this->isSeller() && $this->is_active && $this->hasActiveSubscription();
+        return $this->isSeller() && $this->hasActiveSubscription();
     }
 
     public function canBuy()

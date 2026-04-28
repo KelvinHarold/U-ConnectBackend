@@ -165,7 +165,8 @@ class BuyerDashboardController extends Controller
             ->unique()
             ->toArray();
         
-        $query = Product::with('category')
+        $query = Product::fromPaidSellers()
+            ->with('category')
             ->where('is_active', true)
             ->where('quantity', '>', 0) // Only show in-stock products
             ->whereNotIn('id', $purchasedProductIds);
@@ -207,7 +208,8 @@ class BuyerDashboardController extends Controller
             $needed = 4 - $recommended->count();
             $existingIds = $recommended->pluck('id')->toArray();
             
-            $popularProducts = Product::where('is_active', true)
+            $popularProducts = Product::fromPaidSellers()
+                ->where('is_active', true)
                 ->where('quantity', '>', 0)
                 ->whereNotIn('id', array_merge($purchasedProductIds, $existingIds))
                 ->orderBy('sales_count', 'desc')

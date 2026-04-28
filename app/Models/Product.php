@@ -103,6 +103,13 @@ class Product extends Model
         return $query->where('is_featured', true);
     }
 
+    public function scopeFromPaidSellers($query)
+    {
+        return $query->whereHas('seller', function ($q) {
+            $q->paidOnly();
+        });
+    }
+
     // Helper Methods
     public function isInStock()
     {

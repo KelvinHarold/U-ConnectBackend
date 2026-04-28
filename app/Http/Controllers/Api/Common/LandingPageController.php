@@ -40,7 +40,8 @@ class LandingPageController extends Controller
     public function getProducts(Request $request)
     {
         try {
-            $query = Product::with(['category', 'seller'])
+            $query = Product::fromPaidSellers()
+                ->with(['category', 'seller'])
                 ->where('is_active', true)
                 ->where('quantity', '>', 0);
 
@@ -127,7 +128,8 @@ class LandingPageController extends Controller
             $limit = min($request->get('limit', 8), 50); // Cap at 50
             
             $formattedProducts = Cache::remember("featured_products_limit_{$limit}", 3600, function() use ($limit) {
-                $products = Product::with(['category', 'seller'])
+                $products = Product::fromPaidSellers()
+                    ->with(['category', 'seller'])
                     ->where('is_active', true)
                     ->where('quantity', '>', 0)
                     ->where('is_featured', true)
@@ -187,7 +189,8 @@ class LandingPageController extends Controller
                 $categories = Category::where('is_active', true)
                     ->whereNull('parent_id')
                     ->withCount(['products' => function($q) {
-                        $q->where('is_active', true)->where('quantity', '>', 0);
+                        $q->fromPaidSellers()
+                          ->where('is_active', true)->where('quantity', '>', 0);
                     }])
                     ->orderBy('name', 'asc')
                     ->paginate($perPage);
@@ -247,7 +250,8 @@ class LandingPageController extends Controller
             $subcategories = Category::where('parent_id', $categoryId)
                 ->where('is_active', true)
                 ->withCount(['products' => function($q) {
-                    $q->where('is_active', true)->where('quantity', '>', 0);
+                    $q->fromPaidSellers()
+                      ->where('is_active', true)->where('quantity', '>', 0);
                 }])
                 ->orderBy('name', 'asc')
                 ->paginate($perPage);
@@ -298,7 +302,8 @@ public function getAllSubcategories(Request $request)
             ->whereNotNull('parent_id')
             ->with(['parent']) // Eager load parent
             ->withCount(['products' => function($q) {
-                $q->where('is_active', true)->where('quantity', '>', 0);
+                $q->fromPaidSellers()
+                  ->where('is_active', true)->where('quantity', '>', 0);
             }])
             ->orderBy('name', 'asc')
             ->paginate($perPage); // <- Changed from get() to paginate()
@@ -355,7 +360,8 @@ public function getAllSubcategories(Request $request)
     public function getProductDetails($id)
     {
         try {
-            $product = Product::with(['category', 'seller'])
+            $product = Product::fromPaidSellers()
+                ->with(['category', 'seller'])
                 ->where('is_active', true)
                 ->where('quantity', '>', 0)
                 ->findOrFail($id);
@@ -414,7 +420,8 @@ public function getAllSubcategories(Request $request)
         try {
             $category = Category::findOrFail($categoryId);
             
-            $query = Product::with(['category', 'seller'])
+            $query = Product::fromPaidSellers()
+                ->with(['category', 'seller'])
                 ->where('is_active', true)
                 ->where('quantity', '>', 0)
                 ->where('category_id', $categoryId);
@@ -475,7 +482,8 @@ public function getAllSubcategories(Request $request)
     {
         try {
             $stats = Cache::remember('homepage_stats', 3600, function() {
-                $totalProducts = Product::where('is_active', true)
+                $totalProducts = Product::fromPaidSellers()
+                    ->where('is_active', true)
                     ->where('quantity', '>', 0)
                     ->count();
                 

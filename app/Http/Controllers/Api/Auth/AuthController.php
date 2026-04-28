@@ -18,7 +18,7 @@ class AuthController extends Controller
             'email' => 'required|string|email|max:255|unique:users',
             'phone' => 'required|string|unique:users',
             'password' => ['required', 'confirmed', Password::min(8)],
-            'role' => 'required|in:buyer,seller,admin',  // Admins role should not be placed for security reasons 
+            'role' => 'required|in:buyer,seller',  // Admins role should not be placed for security reasons 
             'address' => 'required|string',
         ]);
 

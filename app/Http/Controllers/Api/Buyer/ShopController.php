@@ -16,7 +16,8 @@ class ShopController extends Controller
     // 
     public function products(Request $request)
     {
-        $query = Product::where('is_active', true)
+        $query = Product::fromPaidSellers()
+            ->where('is_active', true)
             ->where('quantity', '>', 0)
             ->with(['seller', 'category']);
         
@@ -88,7 +89,8 @@ class ShopController extends Controller
 
     public function productDetails($id)
     {
-        $product = Product::where('is_active', true)
+        $product = Product::fromPaidSellers()
+            ->where('is_active', true)
             ->with(['seller', 'category'])
             ->findOrFail($id);
         
@@ -116,7 +118,8 @@ class ShopController extends Controller
         $product->increment('views_count');
         
         // Get related products (same category)
-        $related = Product::where('category_id', $product->category_id)
+        $related = Product::fromPaidSellers()
+            ->where('category_id', $product->category_id)
             ->where('id', '!=', $product->id)
             ->where('is_active', true)
             ->where('quantity', '>', 0)
@@ -143,7 +146,7 @@ class ShopController extends Controller
 public function sellers(Request $request)
 {
     $sellers = User::role('seller')
-        ->where('is_active', true)
+        ->paidOnly()
         ->withCount(['products' => function($q) {
             $q->where('is_active', true)->where('quantity', '>', 0);
         }])
@@ -154,7 +157,7 @@ public function sellers(Request $request)
     if ($request->has('search') && !empty($request->search)) {
         $search = $request->search;
         $sellers = User::role('seller')
-            ->where('is_active', true)
+            ->paidOnly()
             ->where(function($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                   ->orWhere('store_name', 'like', "%{$search}%")
@@ -207,7 +210,8 @@ public function sellers(Request $request)
         }
     }
     
-    $query = Product::where('seller_id', $sellerId)
+    $query = Product::fromPaidSellers()
+        ->where('seller_id', $sellerId)
         ->where('is_active', true)
         ->where('quantity', '>', 0);
     
@@ -324,7 +328,8 @@ public function sellers(Request $request)
             }
             
             // Batch query product counts by category_id
-            $productCounts = Product::where('is_active', true)
+            $productCounts = Product::fromPaidSellers()
+                ->where('is_active', true)
                 ->where('quantity', '>', 0)
                 ->whereIn('category_id', $allNeededCategoryIds)
                 ->select('category_id', DB::raw('count(*) as aggregate'))
@@ -332,7 +337,8 @@ public function sellers(Request $request)
                 ->pluck('aggregate', 'category_id')->toArray();
                 
             // Batch query popular products by category
-            $popularProductsByCat = Product::where('is_active', true)
+            $popularProductsByCat = Product::fromPaidSellers()
+                ->where('is_active', true)
                 ->where('quantity', '>', 0)
                 ->whereIn('category_id', $allNeededCategoryIds)
                 ->orderBy('sales_count', 'desc')
@@ -382,7 +388,8 @@ public function sellers(Request $request)
     public function categoryStats()
     {
         $totalCategories = Category::where('is_active', true)->whereNull('parent_id')->count();
-        $totalProducts = Product::where('is_active', true)
+        $totalProducts = Product::fromPaidSellers()
+            ->where('is_active', true)
             ->where('quantity', '>', 0)
             ->count();
         
@@ -427,7 +434,8 @@ public function subcategories($parentId, Request $request)
     $subcategoryIds = $subcategories->pluck('id')->toArray();
     
     // Batch fetch popular products
-    $popularProductsBySubcat = Product::where('is_active', true)
+    $popularProductsBySubcat = Product::fromPaidSellers()
+        ->where('is_active', true)
         ->where('quantity', '>', 0)
         ->whereIn('category_id', $subcategoryIds)
         ->orderBy('sales_count', 'desc')
@@ -475,7 +483,8 @@ public function subcategories($parentId, Request $request)
             }
         }
         
-        $query = Product::where('is_active', true)
+        $query = Product::fromPaidSellers()
+            ->where('is_active', true)
             ->where('quantity', '>', 0)
             ->where('category_id', $categoryId)
             ->with(['seller', 'category']);
@@ -534,7 +543,8 @@ public function subcategories($parentId, Request $request)
 
     public function featuredProducts()
     {
-        $products = Product::where('is_active', true)
+        $products = Product::fromPaidSellers()
+            ->where('is_active', true)
             ->where('is_featured', true)
             ->where('quantity', '>', 0)
             ->with(['seller', 'category'])
@@ -559,11 +569,13 @@ public function subcategories($parentId, Request $request)
 {
     $categories = Category::where('is_active', true)
         ->whereHas('products', function($q) {
-            $q->where('is_active', true)
+            $q->fromPaidSellers()
+              ->where('is_active', true)
               ->where('quantity', '>', 0);
         })
         ->withCount(['products' => function($q) {
-            $q->where('is_active', true)->where('quantity', '>', 0);
+            $q->fromPaidSellers()
+              ->where('is_active', true)->where('quantity', '>', 0);
         }])
         ->orderBy('name')
         ->paginate($request->get('per_page', 6)) // Add pagination
@@ -580,10 +592,10 @@ public function subcategories($parentId, Request $request)
     // Calculate statistics (these should be separate endpoints or cached)
     $statistics = [
         'total_categories' => Category::where('is_active', true)->count(),
-        'total_products' => Product::where('is_active', true)->where('quantity', '>', 0)->count(),
+        'total_products' => Product::fromPaidSellers()->where('is_active', true)->where('quantity', '>', 0)->count(),
         'categories_with_products' => Category::where('is_active', true)
             ->whereHas('products', function($q) {
-                $q->where('is_active', true)->where('quantity', '>', 0);
+                $q->fromPaidSellers()->where('is_active', true)->where('quantity', '>', 0);
             })->count(),
     ];
     
