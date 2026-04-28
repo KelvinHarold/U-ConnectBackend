@@ -9,98 +9,102 @@ use App\Models\Cart;
 use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class BuyerDashboardController extends Controller
 {
     public function index()
     {
         $buyerId = auth()->id();
-        
-        // Get order statistics
-        $orderStats = [
-            'total_orders' => Order::where('buyer_id', $buyerId)->count(),
-            'pending_orders' => Order::where('buyer_id', $buyerId)->where('status', 'pending')->count(),
-            'processing_orders' => Order::where('buyer_id', $buyerId)->where('status', 'processing')->count(),
-            'shipped_orders' => Order::where('buyer_id', $buyerId)->where('status', 'shipped')->count(),
-            'delivered_orders' => Order::where('buyer_id', $buyerId)->where('status', 'delivered')->count(),
-            'cancelled_orders' => Order::where('buyer_id', $buyerId)->where('status', 'cancelled')->count(),
-            'total_spent' => Order::where('buyer_id', $buyerId)->where('status', 'delivered')->sum('total'),
-        ];
-        
-        // Calculate average order value
-        $orderStats['avg_order_value'] = $orderStats['total_orders'] > 0 
-            ? $orderStats['total_spent'] / $orderStats['total_orders'] 
-            : 0;
-        
-        // Get cart items count
-        $cartItemsCount = Cart::where('buyer_id', $buyerId)->sum('quantity');
-        
-        // Prepare main stats object
-        $stats = [
-            'total_spent' => $orderStats['total_spent'],
-            'total_orders' => $orderStats['total_orders'],
-            'pending_orders' => $orderStats['pending_orders'],
-            'processing_orders' => $orderStats['processing_orders'],
-            'shipped_orders' => $orderStats['shipped_orders'],
-            'delivered_orders' => $orderStats['delivered_orders'],
-            'cancelled_orders' => $orderStats['cancelled_orders'],
-            'cart_items' => $cartItemsCount,
-            'avg_order_value' => $orderStats['avg_order_value'],
-        ];
-        
-        // Get recent orders with relationships and image URLs
-        $recent_orders = Order::where('buyer_id', $buyerId)
-            ->with(['seller', 'items.product'])
-            ->latest()
-            ->take(5)
-            ->get()
-            ->map(function($order) {
-                // Transform product images in order items
-                if ($order->items) {
-                    $order->items->transform(function($item) {
-                        if ($item->product && $item->product->image) {
-                            if (!filter_var($item->product->image, FILTER_VALIDATE_URL)) {
-                                $item->product->image = url($item->product->image);
+        $cacheKey = "buyer_dashboard_stats_{$buyerId}";
+
+        return Cache::remember($cacheKey, 600, function() use ($buyerId) { // Cache for 10 minutes
+            // Get order statistics
+            $orderStats = [
+                'total_orders' => Order::where('buyer_id', $buyerId)->count(),
+                'pending_orders' => Order::where('buyer_id', $buyerId)->where('status', 'pending')->count(),
+                'processing_orders' => Order::where('buyer_id', $buyerId)->where('status', 'processing')->count(),
+                'shipped_orders' => Order::where('buyer_id', $buyerId)->where('status', 'shipped')->count(),
+                'delivered_orders' => Order::where('buyer_id', $buyerId)->where('status', 'delivered')->count(),
+                'cancelled_orders' => Order::where('buyer_id', $buyerId)->where('status', 'cancelled')->count(),
+                'total_spent' => Order::where('buyer_id', $buyerId)->where('status', 'delivered')->sum('total'),
+            ];
+            
+            // Calculate average order value
+            $orderStats['avg_order_value'] = $orderStats['total_orders'] > 0 
+                ? $orderStats['total_spent'] / $orderStats['total_orders'] 
+                : 0;
+            
+            // Get cart items count
+            $cartItemsCount = Cart::where('buyer_id', $buyerId)->sum('quantity');
+            
+            // Prepare main stats object
+            $stats = [
+                'total_spent' => $orderStats['total_spent'],
+                'total_orders' => $orderStats['total_orders'],
+                'pending_orders' => $orderStats['pending_orders'],
+                'processing_orders' => $orderStats['processing_orders'],
+                'shipped_orders' => $orderStats['shipped_orders'],
+                'delivered_orders' => $orderStats['delivered_orders'],
+                'cancelled_orders' => $orderStats['cancelled_orders'],
+                'cart_items' => $cartItemsCount,
+                'avg_order_value' => $orderStats['avg_order_value'],
+            ];
+            
+            // Get recent orders with relationships and image URLs
+            $recent_orders = Order::where('buyer_id', $buyerId)
+                ->with(['seller', 'items.product'])
+                ->latest()
+                ->take(5)
+                ->get()
+                ->map(function($order) {
+                    // Transform product images in order items
+                    if ($order->items) {
+                        $order->items->transform(function($item) {
+                            if ($item->product && $item->product->image) {
+                                if (!filter_var($item->product->image, FILTER_VALIDATE_URL)) {
+                                    $item->product->image = url($item->product->image);
+                                }
                             }
-                        }
-                        return $item;
-                    });
-                }
-                
-                return [
-                    'id' => $order->id,
-                    'order_number' => $order->order_number ?? $order->id,
-                    'total' => $order->total,
-                    'status' => $order->status,
-                    'created_at' => $order->created_at,
-                    'item_count' => $order->items->sum('quantity'),
-                    'items' => $order->items,
-                    'seller' => $order->seller,
-                ];
-            });
-        
-        // Get monthly spending data for the last 12 months
-        $monthly_spending = $this->getMonthlySpending($buyerId);
-        
-        // Get recommended products based on order history (with image URLs)
-        $recommended_products = $this->getRecommendedProducts($buyerId);
-        
-        // Get order status distribution for pie chart
-        $order_status_distribution = [
-            ['name' => 'Delivered', 'value' => $orderStats['delivered_orders'], 'color' => '#10B981'],
-            ['name' => 'Pending', 'value' => $orderStats['pending_orders'], 'color' => '#F59E0B'],
-            ['name' => 'Processing', 'value' => $orderStats['processing_orders'], 'color' => '#3B82F6'],
-            ['name' => 'Shipped', 'value' => $orderStats['shipped_orders'], 'color' => '#8B5CF6'],
-            ['name' => 'Cancelled', 'value' => $orderStats['cancelled_orders'], 'color' => '#EF4444']
-        ];
-        
-        return response()->json([
-            'stats' => $stats,
-            'recent_orders' => $recent_orders,
-            'monthly_spending' => $monthly_spending,
-            'recommended_products' => $recommended_products,
-            'order_status_distribution' => $order_status_distribution,
-        ]);
+                            return $item;
+                        });
+                    }
+                    
+                    return [
+                        'id' => $order->id,
+                        'order_number' => $order->order_number ?? $order->id,
+                        'total' => $order->total,
+                        'status' => $order->status,
+                        'created_at' => $order->created_at,
+                        'item_count' => $order->items->sum('quantity'),
+                        'items' => $order->items,
+                        'seller' => $order->seller,
+                    ];
+                });
+            
+            // Get monthly spending data for the last 12 months
+            $monthly_spending = $this->getMonthlySpending($buyerId);
+            
+            // Get recommended products based on order history (with image URLs)
+            $recommended_products = $this->getRecommendedProducts($buyerId);
+            
+            // Get order status distribution for pie chart
+            $order_status_distribution = [
+                ['name' => 'Delivered', 'value' => $orderStats['delivered_orders'], 'color' => '#10B981'],
+                ['name' => 'Pending', 'value' => $orderStats['pending_orders'], 'color' => '#F59E0B'],
+                ['name' => 'Processing', 'value' => $orderStats['processing_orders'], 'color' => '#3B82F6'],
+                ['name' => 'Shipped', 'value' => $orderStats['shipped_orders'], 'color' => '#8B5CF6'],
+                ['name' => 'Cancelled', 'value' => $orderStats['cancelled_orders'], 'color' => '#EF4444']
+            ];
+            
+            return [
+                'stats' => $stats,
+                'recent_orders' => $recent_orders,
+                'monthly_spending' => $monthly_spending,
+                'recommended_products' => $recommended_products,
+                'order_status_distribution' => $order_status_distribution,
+            ];
+        });
     }
     
     /**

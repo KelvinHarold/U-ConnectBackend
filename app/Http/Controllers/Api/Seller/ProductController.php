@@ -14,6 +14,13 @@ use Illuminate\Support\Str;
 
 class ProductController extends Controller
 {
+    protected $imageService;
+
+    public function __construct(\App\Services\ImageService $imageService)
+    {
+        $this->imageService = $imageService;
+    }
+
     private function getImageUrl($imagePath)
     {
         if (!$imagePath) {
@@ -118,10 +125,7 @@ class ProductController extends Controller
         // Handle image upload
         $imagePath = null;
         if ($request->hasFile('image')) {
-            $image = $request->file('image');
-            $filename = time() . '_' . Str::random(10) . '.' . $image->getClientOriginalExtension();
-            $path = $image->storeAs('products', $filename, 'public');
-            $imagePath = '/storage/' . $path;
+            $imagePath = $this->imageService->compressAndSave($request->file('image'), 'products');
         }
         
         $product = Product::create([
@@ -209,11 +213,7 @@ class ProductController extends Controller
         // Handle image removal
         if ($request->input('remove_image') === true || $request->input('remove_image') === 'true' || $request->input('remove_image') === '1') {
             if ($product->image) {
-                // Extract the storage path from the URL
-                $oldPath = $this->getImagePathFromUrl($product->image);
-                if ($oldPath && Storage::disk('public')->exists($oldPath)) {
-                    Storage::disk('public')->delete($oldPath);
-                }
+                $this->imageService->delete($product->image);
                 $product->image = null;
             }
         }
@@ -222,16 +222,10 @@ class ProductController extends Controller
         if ($request->hasFile('image')) {
             // Delete old image if exists
             if ($product->image) {
-                $oldPath = $this->getImagePathFromUrl($product->image);
-                if ($oldPath && Storage::disk('public')->exists($oldPath)) {
-                    Storage::disk('public')->delete($oldPath);
-                }
+                $this->imageService->delete($product->image);
             }
             
-            $image = $request->file('image');
-            $filename = time() . '_' . Str::random(10) . '.' . $image->getClientOriginalExtension();
-            $path = $image->storeAs('products', $filename, 'public');
-            $product->image = '/storage/' . $path;
+            $product->image = $this->imageService->compressAndSave($request->file('image'), 'products');
         }
         
         // Update other fields
@@ -275,10 +269,7 @@ class ProductController extends Controller
         
         // Delete product image if exists
         if ($product->image) {
-            $path = $this->getImagePathFromUrl($product->image);
-            if ($path && Storage::disk('public')->exists($path)) {
-                Storage::disk('public')->delete($path);
-            }
+            $this->imageService->delete($product->image);
         }
         
         $product->delete();

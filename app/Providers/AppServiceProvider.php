@@ -17,7 +17,7 @@ public function boot(): void
 );
 
 RateLimiter::for('register', fn (Request $r) =>
-    Limit::perHour(30)->by($r->ip())
+    Limit::perHour(5)->by($r->ip())
 );
 }
 }

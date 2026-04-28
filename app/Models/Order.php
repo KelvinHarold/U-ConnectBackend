@@ -32,9 +32,13 @@ class Order extends Model
         'cancelled_at' => 'datetime',
     ];
 
+    protected $appends = [
+        'has_rated_seller'
+    ];
+
     protected static function boot()
     {
-        parent::boot();
+        parent::boot();         
         
         static::creating(function ($order) {
             $order->order_number = 'ORD-' . strtoupper(uniqid());
@@ -150,5 +154,12 @@ class Order extends Model
                "💰 Total: TSh " . number_format($this->total, 2) . "\n\n" .
                "💵 Payment: Cash on Delivery\n\n" .
                "🔗 View order: " . env('APP_URL') . "/seller/orders/{$this->id}";
+    }
+
+    public function getHasRatedSellerAttribute()
+    {
+        return SellerRating::where('buyer_id', $this->buyer_id)
+                           ->where('order_id', $this->id)
+                           ->exists();
     }
 }

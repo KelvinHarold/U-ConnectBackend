@@ -9,6 +9,7 @@ use App\Models\Category;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class ShopController extends Controller
 {
@@ -301,76 +302,79 @@ public function sellers(Request $request)
         }
         
         $perPage = $request->get('per_page', 6);
-        $parentCategories = $query->orderBy('name')->paginate($perPage);
-        
-        // Collect all IDs needed for queries
-        $categoryIdsMap = [];
-        $allNeededCategoryIds = [];
-        
-        foreach ($parentCategories as $category) {
-            $ids = [$category->id];
-            if ($category->children) {
-                $ids = array_merge($ids, $category->children->pluck('id')->toArray());
-            }
-            $categoryIdsMap[$category->id] = $ids;
-            $allNeededCategoryIds = array_merge($allNeededCategoryIds, $ids);
-        }
-        
-        // Batch query product counts by category_id
-        $productCounts = Product::where('is_active', true)
-            ->where('quantity', '>', 0)
-            ->whereIn('category_id', $allNeededCategoryIds)
-            ->select('category_id', DB::raw('count(*) as aggregate'))
-            ->groupBy('category_id')
-            ->pluck('aggregate', 'category_id')->toArray();
-            
-        // Batch query popular products by category
-        // Fetching top limit per parent category is tricky in standard SQL without lateral joins, 
-        // so we'll fetch popular products for ALL needed categories, then filter in memory
-        // This is safe assuming we don't have millions of popular active products.
-        // Even better, fetch top 20 popular products overall for these categories in one go
-        $popularProductsByCat = Product::where('is_active', true)
-            ->where('quantity', '>', 0)
-            ->whereIn('category_id', $allNeededCategoryIds)
-            ->orderBy('sales_count', 'desc')
-            ->get(['id', 'name', 'image', 'price', 'category_id']);
-            
-        // Map images using Resource pattern manually or via helper
-        $popularProductsByCat->transform(function($product) {
-            if ($product->image && !filter_var($product->image, FILTER_VALIDATE_URL)) {
-                $product->image = url($product->image);
-            }
-            return $product;
-        });
+        $search = $request->get('search', '');
+        $page = $request->get('page', 1);
 
-        // Transform each category to add additional data without DB queries
-        $parentCategories->getCollection()->transform(function ($category) use ($categoryIdsMap, $productCounts, $popularProductsByCat) {
-            if ($category->image) {
-                if (!filter_var($category->image, FILTER_VALIDATE_URL)) {
-                    $category->image = url($category->image);
+        $cacheKey = "parent_categories_page_{$page}_per_{$perPage}_search_" . md5($search);
+
+        return Cache::remember($cacheKey, 3600, function() use ($query, $perPage) {
+            $parentCategories = $query->orderBy('name')->paginate($perPage);
+            
+            // Collect all IDs needed for queries
+            $categoryIdsMap = [];
+            $allNeededCategoryIds = [];
+            
+            foreach ($parentCategories as $category) {
+                $ids = [$category->id];
+                if ($category->children) {
+                    $ids = array_merge($ids, $category->children->pluck('id')->toArray());
                 }
+                $categoryIdsMap[$category->id] = $ids;
+                $allNeededCategoryIds = array_merge($allNeededCategoryIds, $ids);
             }
             
-            $category->subcategories_count = $category->children_count;
+            // Batch query product counts by category_id
+            $productCounts = Product::where('is_active', true)
+                ->where('quantity', '>', 0)
+                ->whereIn('category_id', $allNeededCategoryIds)
+                ->select('category_id', DB::raw('count(*) as aggregate'))
+                ->groupBy('category_id')
+                ->pluck('aggregate', 'category_id')->toArray();
+                
+            // Batch query popular products by category
+            $popularProductsByCat = Product::where('is_active', true)
+                ->where('quantity', '>', 0)
+                ->whereIn('category_id', $allNeededCategoryIds)
+                ->orderBy('sales_count', 'desc')
+                ->get(['id', 'name', 'image', 'price', 'category_id']);
+                
+            // Map images
+            $popularProductsByCat->transform(function($product) {
+                if ($product->image && !filter_var($product->image, FILTER_VALIDATE_URL)) {
+                    $product->image = url($product->image);
+                }
+                return $product;
+            });
+
+            // Transform each category to add additional data
+            $parentCategories->getCollection()->transform(function ($category) use ($categoryIdsMap, $productCounts, $popularProductsByCat) {
+                if ($category->image) {
+                    if (!filter_var($category->image, FILTER_VALIDATE_URL)) {
+                        $category->image = url($category->image);
+                    }
+                }
+                
+                $category->subcategories_count = $category->children_count;
+                
+                $relevantCatIds = $categoryIdsMap[$category->id] ?? [$category->id];
+                
+                // Calculate total count
+                $totalCount = 0;
+                foreach ($relevantCatIds as $id) {
+                    $totalCount += $productCounts[$id] ?? 0;
+                }
+                $category->products_count = $totalCount;
+                
+                // Get popular products
+                $category->popular_products = $popularProductsByCat
+                    ->whereIn('category_id', $relevantCatIds)
+                    ->take(4)->values();
+                
+                return $category;
+            });
             
-            $relevantCatIds = $categoryIdsMap[$category->id] ?? [$category->id];
-            
-            // Calculate total count
-            $totalCount = 0;
-            foreach ($relevantCatIds as $id) {
-                $totalCount += $productCounts[$id] ?? 0;
-            }
-            $category->products_count = $totalCount;
-            
-            // Get popular products
-            $category->popular_products = $popularProductsByCat
-                ->whereIn('category_id', $relevantCatIds)
-                ->take(4)->values();
-            
-            return $category;
+            return response()->json($parentCategories);
         });
-        
-        return response()->json($parentCategories);
     }
 
 

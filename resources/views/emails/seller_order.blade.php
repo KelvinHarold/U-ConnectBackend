@@ -1,12 +1,18 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="utf-8">
     <title>New Order #{{ $order->order_number }}</title>
 </head>
+
 <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-    
+
     <div style="text-align: center; margin-bottom: 20px;">
+        <img src="{{ $message->embed(public_path('images/logo.png')) }}"
+            alt="U-Connect Logo"
+            style="max-width: 150px; margin-bottom: 10px;">
+
         <h2 style="color: #5C352C; font-size: 24px; text-transform: uppercase;">New Order Received! 🛍️</h2>
         <p style="font-size: 16px; color: #555;">You have received a new order from <strong>{{ $order->buyer->name }}</strong>.</p>
     </div>
@@ -51,10 +57,10 @@
             <p style="margin: 5px 0; color: #555;">{{ $order->delivery_address }}</p>
         </div>
         @if($order->notes)
-            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #f5f5f5;">
-                <strong>Order Notes:</strong><br>
-                <p style="margin: 5px 0; color: #555;">{{ $order->notes }}</p>
-            </div>
+        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #f5f5f5;">
+            <strong>Order Notes:</strong><br>
+            <p style="margin: 5px 0; color: #555;">{{ $order->notes }}</p>
+        </div>
         @endif
     </div>
 
@@ -69,4 +75,5 @@
     </div>
 
 </body>
+
 </html>

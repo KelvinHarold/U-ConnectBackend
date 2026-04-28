@@ -15,6 +15,13 @@ use Illuminate\Support\Str;
 
 class IssueReportController extends Controller
 {
+    protected $imageService;
+
+    public function __construct(\App\Services\ImageService $imageService)
+    {
+        $this->imageService = $imageService;
+    }
+
     /**
      * List reports for the authenticated user.
      */
@@ -60,10 +67,7 @@ class IssueReportController extends Controller
 
         $imagePath = null;
         if ($request->hasFile('evidence_image')) {
-            $image = $request->file('evidence_image');
-            $filename = time() . '_' . Str::random(10) . '.' . $image->getClientOriginalExtension();
-            $path = $image->storeAs('reports', $filename, 'public');
-            $imagePath = '/storage/' . $path;
+            $imagePath = $this->imageService->compressAndSave($request->file('evidence_image'), 'reports');
         }
 
         $report = IssueReport::create([

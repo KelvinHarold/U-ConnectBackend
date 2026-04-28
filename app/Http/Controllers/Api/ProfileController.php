@@ -12,6 +12,13 @@ use Illuminate\Support\Facades\Storage;
 
 class ProfileController extends Controller
 {
+    protected $imageService;
+
+    public function __construct(\App\Services\ImageService $imageService)
+    {
+        $this->imageService = $imageService;
+    }
+
     /**
      * Get user profile based on role
      */
@@ -69,8 +76,10 @@ class ProfileController extends Controller
     
     // Handle profile photo
     if ($request->hasFile('profile_photo')) {
-        $photoPath = $request->file('profile_photo')->store('profile-photos', 'public');
-        $userData['profile_photo'] = $photoPath;
+        if ($user->profile_photo) {
+            $this->imageService->delete($user->profile_photo);
+        }
+        $userData['profile_photo'] = $this->imageService->compressAndSave($request->file('profile_photo'), 'profile-photos');
     }
     
     $user->update($userData);
@@ -82,8 +91,10 @@ class ProfileController extends Controller
             $sellerData = $request->only(['store_name', 'store_description']);
             
             if ($request->hasFile('store_logo')) {
-                $logoPath = $request->file('store_logo')->store('store-logos', 'public');
-                $sellerData['store_logo'] = $logoPath;
+                if ($seller->store_logo) {
+                    $this->imageService->delete($seller->store_logo);
+                }
+                $sellerData['store_logo'] = $this->imageService->compressAndSave($request->file('store_logo'), 'store-logos');
             }
             
             $seller->update($sellerData);

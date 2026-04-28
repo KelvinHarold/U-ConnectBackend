@@ -14,6 +14,13 @@ use Illuminate\Support\Facades\Validator;
 
 class CategoryManagementController extends Controller
 {
+    protected $imageService;
+
+    public function __construct(\App\Services\ImageService $imageService)
+    {
+        $this->imageService = $imageService;
+    }
+
     public function index()
     {
         $categories = Category::with('parent')
@@ -53,13 +60,8 @@ class CategoryManagementController extends Controller
         $validated['slug'] = Str::slug($validated['name']);
 
         // Handle image upload
-        $imagePath = null;
         if ($request->hasFile('image')) {
-            $image = $request->file('image');
-            $filename = time() . '_' . Str::random(10) . '.' . $image->getClientOriginalExtension();
-            $path = $image->storeAs('categories', $filename, 'public');
-            $imagePath = '/storage/' . $path;
-            $validated['image'] = $imagePath;
+            $validated['image'] = $this->imageService->compressAndSave($request->file('image'), 'categories');
         }
 
         $category = Category::create($validated);
@@ -142,10 +144,7 @@ class CategoryManagementController extends Controller
             $request->input('remove_image') === '1'
         ) {
             if ($category->image) {
-                $oldPath = str_replace('/storage/', '', $category->image);
-                if (Storage::disk('public')->exists($oldPath)) {
-                    Storage::disk('public')->delete($oldPath);
-                }
+                $this->imageService->delete($category->image);
                 $category->image = null;
             }
         }
@@ -154,17 +153,11 @@ class CategoryManagementController extends Controller
         if ($request->hasFile('image')) {
             // Delete old image if exists
             if ($category->image) {
-                $oldPath = str_replace('/storage/', '', $category->image);
-                if (Storage::disk('public')->exists($oldPath)) {
-                    Storage::disk('public')->delete($oldPath);
-                }
+                $this->imageService->delete($category->image);
             }
 
             // Upload new image
-            $image = $request->file('image');
-            $filename = time() . '_' . Str::random(10) . '.' . $image->getClientOriginalExtension();
-            $path = $image->storeAs('categories', $filename, 'public');
-            $validated['image'] = '/storage/' . $path;
+            $validated['image'] = $this->imageService->compressAndSave($request->file('image'), 'categories');
         }
 
         // Update other fields
@@ -219,10 +212,7 @@ class CategoryManagementController extends Controller
 
         // Delete category image if exists
         if ($category->image) {
-            $path = str_replace('/storage/', '', $category->image);
-            if (Storage::disk('public')->exists($path)) {
-                Storage::disk('public')->delete($path);
-            }
+            $this->imageService->delete($category->image);
         }
 
         $category->delete();

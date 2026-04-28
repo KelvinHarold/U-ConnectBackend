@@ -19,10 +19,10 @@ class User extends Authenticatable
         'password',
         'address',
         'university_id',
-        'profile_photo',      // Changed from profile_picture
-        'store_name',         // Add for sellers
-        'store_description',  // Add for sellers
-        'store_logo',         // Add for sellers
+        'profile_photo',      
+        'store_name',         
+        'store_description', 
+        'store_logo',         
         'is_active',
     ];
 

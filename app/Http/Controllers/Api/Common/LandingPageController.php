@@ -9,6 +9,7 @@ use App\Models\Category;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class LandingPageController extends Controller
 {
@@ -125,35 +126,37 @@ class LandingPageController extends Controller
         try {
             $limit = min($request->get('limit', 8), 50); // Cap at 50
             
-            $products = Product::with(['category', 'seller'])
-                ->where('is_active', true)
-                ->where('quantity', '>', 0)
-                ->where('is_featured', true)
-                ->orderBy('created_at', 'desc')
-                ->limit($limit)
-                ->get();
+            $formattedProducts = Cache::remember("featured_products_limit_{$limit}", 3600, function() use ($limit) {
+                $products = Product::with(['category', 'seller'])
+                    ->where('is_active', true)
+                    ->where('quantity', '>', 0)
+                    ->where('is_featured', true)
+                    ->orderBy('created_at', 'desc')
+                    ->limit($limit)
+                    ->get();
 
-            $formattedProducts = $products->map(function ($product) {
-                return [
-                    'id' => $product->id,
-                    'name' => $product->name,
-                    'slug' => $product->slug,
-                    'description' => $product->description,
-                    'price' => (float) $product->price,
-                    'quantity' => (int) $product->quantity,
-                    'image' => $this->getImageUrl($product->image),
-                    'images' => $product->images ? json_decode($product->images, true) : [],
-                    'is_featured' => (bool) $product->is_featured,
-                    'discount_percentage' => (int) $product->discount_percentage,
-                    'discounted_price' => (float) $product->discounted_price,
-                    'views_count' => (int) $product->views_count,
-                    'sales_count' => (int) $product->sales_count,
-                    'category' => $product->category ? [
-                        'id' => $product->category->id,
-                        'name' => $product->category->name,
-                    ] : null,
-                    'created_at' => $product->created_at ? $product->created_at->toISOString() : null,
-                ];
+                return $products->map(function ($product) {
+                    return [
+                        'id' => $product->id,
+                        'name' => $product->name,
+                        'slug' => $product->slug,
+                        'description' => $product->description,
+                        'price' => (float) $product->price,
+                        'quantity' => (int) $product->quantity,
+                        'image' => $this->getImageUrl($product->image),
+                        'images' => $product->images ? json_decode($product->images, true) : [],
+                        'is_featured' => (bool) $product->is_featured,
+                        'discount_percentage' => (int) $product->discount_percentage,
+                        'discounted_price' => (float) $product->discounted_price,
+                        'views_count' => (int) $product->views_count,
+                        'sales_count' => (int) $product->sales_count,
+                        'category' => $product->category ? [
+                            'id' => $product->category->id,
+                            'name' => $product->category->name,
+                        ] : null,
+                        'created_at' => $product->created_at ? $product->created_at->toISOString() : null,
+                    ];
+                })->toArray();
             });
 
             return response()->json([
@@ -178,40 +181,43 @@ class LandingPageController extends Controller
     {
         try {
             $perPage = min($request->get('per_page', 20), 50); // Cap at 50
-            
-            $categories = Category::where('is_active', true)
-                ->whereNull('parent_id')
-                ->withCount(['products' => function($q) {
-                    $q->where('is_active', true)->where('quantity', '>', 0);
-                }])
-                ->orderBy('name', 'asc')
-                ->paginate($perPage);
+            $page = $request->get('page', 1);
 
-            $formattedCategories = $categories->map(function ($category) {
-                return [
-                    'id' => $category->id,
-                    'name' => $category->name,
-                    'slug' => $category->slug,
-                    'description' => $category->description,
-                    'image' => $category->image ? $this->getImageUrl($category->image) : null,
-                    'parent_id' => $category->parent_id,
-                    'is_active' => (bool) $category->is_active,
-                    'product_count' => $category->products_count,
-                    'created_at' => $category->created_at ? $category->created_at->toISOString() : null,
-                ];
+            return Cache::remember("categories_page_{$page}_per_{$perPage}", 86400, function() use ($perPage) {
+                $categories = Category::where('is_active', true)
+                    ->whereNull('parent_id')
+                    ->withCount(['products' => function($q) {
+                        $q->where('is_active', true)->where('quantity', '>', 0);
+                    }])
+                    ->orderBy('name', 'asc')
+                    ->paginate($perPage);
+
+                $formattedCategories = $categories->map(function ($category) {
+                    return [
+                        'id' => $category->id,
+                        'name' => $category->name,
+                        'slug' => $category->slug,
+                        'description' => $category->description,
+                        'image' => $category->image ? $this->getImageUrl($category->image) : null,
+                        'parent_id' => $category->parent_id,
+                        'is_active' => (bool) $category->is_active,
+                        'product_count' => $category->products_count,
+                        'created_at' => $category->created_at ? $category->created_at->toISOString() : null,
+                    ];
+                });
+
+                return response()->json([
+                    'success' => true,
+                    'data' => $formattedCategories,
+                    'pagination' => [
+                        'current_page' => $categories->currentPage(),
+                        'last_page' => $categories->lastPage(),
+                        'per_page' => $categories->perPage(),
+                        'total' => $categories->total(),
+                    ],
+                    'message' => 'Categories retrieved successfully'
+                ]);
             });
-
-            return response()->json([
-                'success' => true,
-                'data' => $formattedCategories,
-                'pagination' => [
-                    'current_page' => $categories->currentPage(),
-                    'last_page' => $categories->lastPage(),
-                    'per_page' => $categories->perPage(),
-                    'total' => $categories->total(),
-                ],
-                'message' => 'Categories retrieved successfully'
-            ]);
         } catch (\Exception $e) {
             Log::error('Error in getCategories: ' . $e->getMessage());
             return response()->json([
@@ -468,26 +474,30 @@ public function getAllSubcategories(Request $request)
     public function getHomepageStats()
     {
         try {
-            $totalProducts = Product::where('is_active', true)
-                ->where('quantity', '>', 0)
-                ->count();
-            
-            $totalCategories = Category::where('is_active', true)
-                ->whereNull('parent_id')
-                ->count();
-            
-            $totalSellers = User::role('seller')->count();
-            
-            $totalProductsSold = Product::sum('sales_count');
+            $stats = Cache::remember('homepage_stats', 3600, function() {
+                $totalProducts = Product::where('is_active', true)
+                    ->where('quantity', '>', 0)
+                    ->count();
+                
+                $totalCategories = Category::where('is_active', true)
+                    ->whereNull('parent_id')
+                    ->count();
+                
+                $totalSellers = User::role('seller')->count();
+                
+                $totalProductsSold = Product::sum('sales_count');
 
-            return response()->json([
-                'success' => true,
-                'data' => [
+                return [
                     'total_products' => $totalProducts,
                     'total_categories' => $totalCategories,
                     'total_sellers' => $totalSellers,
                     'total_products_sold' => $totalProductsSold,
-                ],
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $stats,
                 'message' => 'Statistics retrieved successfully'
             ]);
         } catch (\Exception $e) {
